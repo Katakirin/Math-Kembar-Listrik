@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { Difficulty, Operation, Question, GameState } from './types';
 import MathProblem from './components/MathProblem';
 import AnswerOptions from './components/AnswerOptions';
@@ -6,6 +6,38 @@ import GameControls from './components/GameControls';
 import ProgressBar from './components/ProgressBar';
 import { generateQuestion } from './utils/mathUtils';
 import { Trophy, RefreshCw, ChevronDown, ChevronUp, Calculator } from 'lucide-react';
+
+// Fungsi debounce untuk Difficulty
+const debounceDifficulty = (func: (difficulty: Difficulty) => void, wait: number) => {
+  let timeout: ReturnType<typeof setTimeout>;
+  return function executedFunction(difficulty: Difficulty) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(difficulty);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+};
+
+// Fungsi debounce untuk Operation
+const debounceOperation = (func: (operation: Operation) => void, wait: number) => {
+  let timeout: ReturnType<typeof setTimeout>;
+  return function executedFunction(operation: Operation) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(operation);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+};
+
+// Memoize komponen yang sering di-render
+const MemoizedMathProblem = memo(MathProblem);
+const MemoizedAnswerOptions = memo(AnswerOptions);
+const MemoizedProgressBar = memo(ProgressBar);
+const MemoizedGameControls = memo(GameControls);
 
 function App() {
   const [gameState, setGameState] = useState<GameState>({
@@ -24,10 +56,24 @@ function App() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [showSolutions, setShowSolutions] = useState(false);
 
+  // Memoize operationSymbols
+  const operationSymbols = useMemo<Record<Operation, string>>(() => ({
+    tambah: '+',
+    kurang: '-',
+    kali: '×',
+    bagi: '÷',
+  }), []);
+
+  // Memoize currentQuestion generation
+  const generateNewQuestion = useCallback(() => {
+    return generateQuestion(gameState.difficulty, gameState.operation);
+  }, [gameState.difficulty, gameState.operation]);
+
+  // Optimize useEffect untuk generateQuestion
   useEffect(() => {
-    const newQuestion = generateQuestion(gameState.difficulty, gameState.operation);
-    setCurrentQuestion(newQuestion);
     if (!gameCompleted && gameState.pertanyaanSekarang <= gameState.totalPertanyaan) {
+      const newQuestion = generateNewQuestion();
+      setCurrentQuestion(newQuestion);
       setQuestions(prev => {
         if (prev.length < gameState.pertanyaanSekarang) {
           return [...prev, newQuestion];
@@ -35,23 +81,10 @@ function App() {
         return prev;
       });
     }
-  }, [gameState.difficulty, gameState.operation, gameState.pertanyaanSekarang]);
+  }, [gameState.difficulty, gameState.operation, gameState.pertanyaanSekarang, gameCompleted, generateNewQuestion]);
 
-  const resetGame = () => {
-    setGameState({
-      skor: 0,
-      pertanyaanSekarang: 1,
-      totalPertanyaan: 10,
-      difficulty: 'pemula',
-      operation: 'tambah',
-      bintang: 0,
-    });
-    setGameCompleted(false);
-    setQuestions([]);
-    setCurrentQuestion(generateQuestion('pemula', 'tambah'));
-  };
-
-  const handleAnswerSelect = (selectedAnswer: number) => {
+  // Optimize handleAnswerSelect dengan useCallback
+  const handleAnswerSelect = useCallback((selectedAnswer: number) => {
     if (!currentQuestion) return;
 
     const correct = selectedAnswer === currentQuestion.answer;
@@ -80,33 +113,47 @@ function App() {
           ...prev,
           pertanyaanSekarang: prev.pertanyaanSekarang + 1,
         }));
-        setCurrentQuestion(generateQuestion(gameState.difficulty, gameState.operation));
+        setCurrentQuestion(generateNewQuestion());
       } else {
         setGameCompleted(true);
       }
     }, 2000);
-  };
+  }, [currentQuestion, gameState.pertanyaanSekarang, gameState.totalPertanyaan, generateNewQuestion]);
 
-  const handleDifficultyChange = (difficulty: Difficulty) => {
-    setGameState(prev => ({ ...prev, difficulty, pertanyaanSekarang: 1, skor: 0, bintang: 0 }));
-    setQuestions([]);
+  const resetGame = () => {
+    setGameState({
+      skor: 0,
+      pertanyaanSekarang: 1,
+      totalPertanyaan: 10,
+      difficulty: 'pemula',
+      operation: 'tambah',
+      bintang: 0,
+    });
     setGameCompleted(false);
-  };
-
-  const handleOperationChange = (operation: Operation) => {
-    setGameState(prev => ({ ...prev, operation, pertanyaanSekarang: 1, skor: 0, bintang: 0 }));
     setQuestions([]);
-    setGameCompleted(false);
+    setCurrentQuestion(generateQuestion('pemula', 'tambah'));
   };
 
-  const operationSymbols: Record<Operation, string> = {
-    tambah: '+',
-    kurang: '-',
-    kali: '×',
-    bagi: '÷',
-  };
+  const handleDifficultyChange = useCallback(
+    debounceDifficulty((difficulty: Difficulty) => {
+      setGameState(prev => ({ ...prev, difficulty, pertanyaanSekarang: 1, skor: 0, bintang: 0 }));
+      setQuestions([]);
+      setGameCompleted(false);
+    }, 300),
+    []
+  );
 
-  const renderDetailedSolution = (question: Question) => {
+  const handleOperationChange = useCallback(
+    debounceOperation((operation: Operation) => {
+      setGameState(prev => ({ ...prev, operation, pertanyaanSekarang: 1, skor: 0, bintang: 0 }));
+      setQuestions([]);
+      setGameCompleted(false);
+    }, 300),
+    []
+  );
+
+  // Memoize renderDetailedSolution
+  const renderDetailedSolution = useCallback((question: Question) => {
     if (question.operation === 'tambah') {
       if (gameState.difficulty === 'lanjutan') {
         // Metode Kompensasi untuk tingkat lanjutan
@@ -470,9 +517,10 @@ function App() {
     }
     
     return null;
-  };
+  }, [gameState.difficulty]);
 
-  if (gameCompleted) {
+  // Memoize game completed view
+  const renderGameCompleted = useCallback(() => {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100 py-4 px-2 sm:py-8 sm:px-4">
         <div className="max-w-2xl mx-auto">
@@ -543,68 +591,73 @@ function App() {
         </div>
       </div>
     );
-  }
+  }, [gameState.skor, gameState.bintang, gameState.totalPertanyaan, showSolutions, questions, operationSymbols, renderDetailedSolution]);
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100 py-4 px-2 sm:py-8 sm:px-4">
-      <div className="max-w-2xl mx-auto">
-        <div className="text-center mb-6 sm:mb-8">
-          <div className="flex items-center justify-center gap-2 mb-3 sm:mb-4">
-            <img src="/logo.webp" alt="Math Kembar Listrik" className="w-8 h-8 sm:w-12 sm:h-12" />
-            <h1 className="text-2xl sm:text-4xl font-bold text-blue-600">Math Kembar Listrik</h1>
+  // Memoize main game view
+  const renderMainGame = useCallback(() => {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100 py-4 px-2 sm:py-8 sm:px-4">
+        <div className="max-w-2xl mx-auto">
+          <div className="text-center mb-6 sm:mb-8">
+            <div className="flex items-center justify-center gap-2 mb-3 sm:mb-4">
+              <img src="/logo.webp" alt="Math Kembar Listrik" className="w-8 h-8 sm:w-12 sm:h-12" />
+              <h1 className="text-2xl sm:text-4xl font-bold text-blue-600">Math Kembar Listrik</h1>
+            </div>
+            <p className="text-gray-600 text-base sm:text-lg">Let's make learning math fun! 🌟</p>
           </div>
-          <p className="text-gray-600 text-base sm:text-lg">Let's make learning math fun! 🌟</p>
-        </div>
 
-        <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8 mb-4 sm:mb-8">
-          <GameControls
-            difficulty={gameState.difficulty}
-            operation={gameState.operation}
-            onDifficultyChange={handleDifficultyChange}
-            onOperationChange={handleOperationChange}
-          />
-        </div>
-
-        <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8 mb-4 sm:mb-8">
-          <ProgressBar
-            current={gameState.pertanyaanSekarang}
-            total={gameState.totalPertanyaan}
-            stars={gameState.bintang}
-          />
-        </div>
-
-        {currentQuestion && (
           <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8 mb-4 sm:mb-8">
-            <MathProblem
-              num1={currentQuestion.num1}
-              num2={currentQuestion.num2}
-              operation={currentQuestion.operation}
-            />
-            <AnswerOptions
-              options={currentQuestion.options}
-              onSelect={handleAnswerSelect}
+            <MemoizedGameControls
+              difficulty={gameState.difficulty}
+              operation={gameState.operation}
+              onDifficultyChange={handleDifficultyChange}
+              onOperationChange={handleOperationChange}
             />
           </div>
-        )}
 
-        {feedback && (
-          <div
-            className={`text-center p-3 sm:p-4 rounded-xl text-base sm:text-lg font-bold mb-4 sm:mb-8 ${
-              isCorrect
-                ? 'bg-green-100 text-green-700'
-                : 'bg-red-100 text-red-700'
-            }`}
-          >
-            {feedback}
+          <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8 mb-4 sm:mb-8">
+            <MemoizedProgressBar
+              current={gameState.pertanyaanSekarang}
+              total={gameState.totalPertanyaan}
+              stars={gameState.bintang}
+            />
           </div>
-        )}
 
-        <div className="text-center text-gray-600 text-sm sm:text-base">
-          Score: {gameState.skor} / {gameState.pertanyaanSekarang - 1}
+          {currentQuestion && (
+            <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8 mb-4 sm:mb-8">
+              <MemoizedMathProblem
+                num1={currentQuestion.num1}
+                num2={currentQuestion.num2}
+                operation={currentQuestion.operation}
+              />
+              <MemoizedAnswerOptions
+                options={currentQuestion.options}
+                onSelect={handleAnswerSelect}
+              />
+            </div>
+          )}
+
+          {feedback && (
+            <div
+              className={`text-center p-3 sm:p-4 rounded-xl text-base sm:text-lg font-bold mb-4 sm:mb-8 ${
+                isCorrect
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-red-100 text-red-700'
+              }`}
+            >
+              {feedback}
+            </div>
+          )}
+
+          <div className="text-center text-gray-600 text-sm sm:text-base">
+            Score: {gameState.skor} / {gameState.pertanyaanSekarang - 1}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  }, [currentQuestion, feedback, isCorrect, gameState, handleAnswerSelect, handleDifficultyChange, handleOperationChange]);
+
+  return gameCompleted ? renderGameCompleted() : renderMainGame();
 }
 
 export default App;
