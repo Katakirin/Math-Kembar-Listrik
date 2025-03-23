@@ -550,7 +550,7 @@ function App() {
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-6 sm:mb-8">
           <div className="flex items-center justify-center gap-2 mb-3 sm:mb-4">
-            <img src="/src/public/logo.png" alt="Math Kembar Listrik" className="w-8 h-8 sm:w-12 sm:h-12" />
+            <img src="/src/public/logo.webp" alt="Math Kembar Listrik" className="w-8 h-8 sm:w-12 sm:h-12" />
             <h1 className="text-2xl sm:text-4xl font-bold text-blue-600">Math Kembar Listrik</h1>
           </div>
           <p className="text-gray-600 text-base sm:text-lg">Let's make learning math fun! 🌟</p>
